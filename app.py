@@ -130,9 +130,14 @@ BAD_PATTERNS = [
     r"해킹|디도스|랜섬웨어|취약점\s*악용",
     r"비밀번호|패스워드|OTP|백도어",
     r"주민등록번호|여권번호|신용카드\s*번호",
-    r"피싱|보이스\s*피싱|메신저\s*피싱|phishing"  # ← 피싱 계열 추가
+    r"피싱|보이스\s*피싱|메신저\s*피싱|phishing",
+    # 살해/살상 인텐트(한국어/영어)
+    r"(사람|타인|상대|누구|그녀|그놈|그새끼).{0,6}죽(여|일|이|여줘|여라|이게|이는|이는법)",
+    r"죽여줘|죽이는\s*방법|죽일\s*방법|죽이는법|죽일래|죽여\s*버려",
+    r"kill( someone| him| her| them)?|how to kill|murder"
 ]
 BAD_RE = re.compile("|".join(BAD_PATTERNS), re.I)
+
 
 def rule_detect(text: str):
     if not text.strip():
