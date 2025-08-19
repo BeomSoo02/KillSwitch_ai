@@ -17,7 +17,7 @@ def _extract_state(sd):
     return sd
 
 def load_classifier(model_name, ckpt_path, device='cpu'):
-    tok = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    tok = AutoTokenizer.from_pretrained(model_name, use_fast=False)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
     with _safe_ctx(): ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
     state = _extract_state(ckpt); model.load_state_dict(state, strict=False)
