@@ -131,7 +131,7 @@ st.title("🛡️ KillSwitch AI — Streamlit 데모")
 # ─ Sidebar: 설정
 st.sidebar.header("설정")
 OPENAI_API_KEY = st.sidebar.text_input("OPENAI_API_KEY", type="password")
-openai_model   = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")  # 원하면 "gpt-5"로 적어도 됨
+openai_model   = st.sidebar.text_input("OpenAI 모델", value="gpt-5") 
 thr_ui         = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.70, step=0.05)
 input_lang     = st.sidebar.selectbox("입력 언어", ["auto", "ko", "en"], index=0)
 force_call     = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
