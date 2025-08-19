@@ -1,9 +1,8 @@
 streamlit==1.36.0
 transformers==4.46.2
-tokenizers==0.20.1
 huggingface_hub==0.26.2
 requests>=2.31.0
-safetensors>=0.4.4
+safetensors==0.4.4
+sentencepiece==0.2.1
 openai>=1.30.0
-
 torch==2.7.1
