@@ -214,7 +214,7 @@ if st.sidebar.button("HF 연결 점검"):
 
 # 입력 & 버튼 (단일 버튼)
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
-run = st.button("분석 (필요 시 GPT 호출)")
+run = st.button("분석 (GPT 호출)")
 
 if run:
     with st.spinner("분석 중..."):
