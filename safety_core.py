@@ -28,7 +28,7 @@ if not CKPT_PATH:
     if hits: CKPT_PATH = sorted(hits)[-1]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-tok = AutoTokenizer.from_pretrained(MODEL_NAME)
+tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
 
 class MeanPooler(nn.Module):
     def forward(self, h, m):
