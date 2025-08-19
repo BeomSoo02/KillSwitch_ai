@@ -165,7 +165,7 @@ def predict(text: str, thr_ui: float):
             if logits.size(-1) == 1:   # 시그모이드 헤드
                 m_score = torch.sigmoid(logits)[0, 0].item()
             else:                      # 소프트맥스 헤드
-                m_score = 1.0 - torch.softmax(logits, dim=-1)[0, 1].item()   # benign 확률 → 악성 확률로 반전
+                m_score = torch.softmax(logits, dim=-1)[0, 1].item()
 
     # ③ 융합: 보수적으로 max 사용
     score = max(r_score, m_score)
