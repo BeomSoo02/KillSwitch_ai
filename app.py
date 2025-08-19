@@ -188,17 +188,20 @@ def predict(text: str, thr_ui: float):
 # ─────────────────────────────────────────────────────────────────────────────
 # 5) UI
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 5) UI  ← 기존 버튼 2개 쓰던 블록을 이걸로 통째로 교체
+# ─────────────────────────────────────────────────────────────────────────────
 st.title("🛡️ KillSwitch AI — Streamlit 데모")
 
 # 사이드바
 st.sidebar.header("설정")
 OPENAI_API_KEY = st.sidebar.text_input("OPENAI_API_KEY", type="password")
-openai_model   = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")  # 필요시 "gpt-5"로
+openai_model   = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")
 thr_ui         = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.70, step=0.05)
 input_lang     = st.sidebar.selectbox("입력 언어", ["auto", "ko", "en"], index=0)
 force_call     = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
 
-# HF 연결 점검
+# HF 연결 점검 (그대로 유지)
 st.sidebar.caption(f"HF: {REPO_ID} ({REPO_TYPE}) / {FILENAME}")
 if st.sidebar.button("HF 연결 점검"):
     try:
@@ -209,27 +212,25 @@ if st.sidebar.button("HF 연결 점검"):
         st.sidebar.error("다운로드 실패")
         st.sidebar.exception(e)
 
-# 입력/버튼
+# 입력 & 버튼 (단일 버튼)
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
-col1, col2 = st.columns([1, 1])
-btn_analyze = col1.button("분석")
-btn_both    = col2.button("분석 후 GPT 호출")
+run = st.button("분석 (필요 시 GPT 호출)")
 
-# 분석
-result = None
-if btn_analyze or btn_both:
-    result = predict(txt, thr_ui=thr_ui)
+if run:
+    with st.spinner("분석 중..."):
+        result = predict(txt, thr_ui=thr_ui)
     st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
+
+    # 분석 결과
     st.subheader("분석 결과  ↪️")
     st.json({k: v for k, v in result.items() if not k.startswith("_")})
 
-# GPT 호출
-st.subheader("GPT 응답")
-if btn_both:
+    # GPT 응답 (한 버튼 안에서 후속 실행)
+    st.subheader("GPT 응답")
     if not OPENAI_API_KEY:
-        st.error("OPENAI_API_KEY가 비었습니다. 사이드바에 입력해주세요.")
-    elif result and result["판정"] == "악성" and not force_call:
-        st.warning("악성으로 판정되어 GPT 호출을 차단했습니다. (사이드바에서 '강행' 체크 시 시도)")
+        st.info("OPENAI_API_KEY가 없어 GPT 호출은 생략했습니다.")
+    elif result["판정"] == "악성" and not force_call:
+        st.warning("악성으로 판정되어 GPT 호출을 차단했습니다. (사이드바 '강행'을 체크하면 호출)")
     else:
         try:
             from openai import OpenAI
@@ -250,8 +251,3 @@ if btn_both:
         except Exception as e:
             st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
             st.caption("429(쿼터 초과) 등 요금제/모델 이름을 확인하세요.")
-
-# 푸터
-st.markdown("---")
-st.caption("HF_DIR(완전 모델 디렉토리)을 지정하면 from_pretrained로 바로 로드합니다.")
-st.caption(f"Hugging Face: {REPO_ID} / {REPO_TYPE} / {FILENAME}")
