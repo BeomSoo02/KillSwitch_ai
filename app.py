@@ -136,7 +136,7 @@ BAD_PATTERNS = [
     r"죽여줘|죽이는\s*방법|죽일\s*방법|죽이는법|죽일래|죽여\s*버려",
     r"kill( someone| him| her| them)?|how to kill|murder",
 
-    # ====== 여기서부터 악성 댓글/욕설 추가 ======
+    # ====== 악성 댓글/욕설  ======
     r"씨발|시발|ㅅㅂ|개새끼|염병|좆|병신|지랄",
     r"미친놈|또라이|정신병자|꺼져|사라져|입닥쳐",
     r"\bfuck\b|\bshit\b|\basshole\b|\bidiot\b",
