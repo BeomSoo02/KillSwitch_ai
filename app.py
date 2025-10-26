@@ -281,48 +281,70 @@ if st.sidebar.button("HF 연결 점검"):
 # 메인 입력
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
 
-# GPT 호출 포함 분석 버튼 (스크린샷 UI 유지)
+# ===== 7) 버튼 & 출력(요약/GPT 기본 펼침, 나머지 접힘) =====
 if st.button("분석 (GPT 호출)"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
     else:
         with st.spinner("분석 중..."):
             result = predict(txt, thr_ui)
+
         st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
-        st.subheader("분석 결과  ↪️")
-        st.json({k: v for k, v in result.items() if not k.startswith("_")})
 
-        # GPT 호출
-        st.subheader("GPT 응답")
-        key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
-        key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
-        key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
-        key_ok = key_from_secrets or key_from_env or key_from_session
+        # ✅ 1) 판정/점수 요약 — 기본 펼침
+        with st.expander("✅ 판정 / 점수 요약", expanded=True):
+            col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1])
+            with col1: st.metric("판정", result["판정"])
+            with col2: st.metric("원점수(p1)", f"{result['원점수(p1)']:.3f}")
+            with col3: st.metric("조정점수", f"{result['조정점수(p1+가중치)']:.3f}")
+            with col4: st.metric("임계값", f"{result['임계값']:.2f}")
+            with col5: st.metric("확신도(gap)", f"{result['근거']['softmax_gap(|p1-p0|)']:.3f}")
 
-        if not key_ok:
-            st.info("OPENAI_API_KEY가 없어 GPT 호출을 생략했습니다.")
-        elif result["판정"] == "악성" and not force_call:
-            st.warning("악성으로 판정되어 GPT 호출이 차단되었습니다. (사이드바 '강행'을 체크하면 호출)")
-        else:
-            try:
-                from openai import OpenAI
-                api_key = (
-                    st.secrets.get("OPENAI_API_KEY")
-                    or os.getenv("OPENAI_API_KEY")
-                    or st.session_state.OPENAI_API_KEY
-                )
-                client = OpenAI(api_key=api_key)
-                rsp = client.responses.create(
-                    model=openai_model,
-                    input=[
-                        {"role": "system",
-                         "content":
-                         "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
-                        {"role": "user", "content": txt},
-                    ],
-                    temperature=0.3,
-                    top_p=1.0,
-                )
-                st.write(rsp.output_text)
-            except Exception as e:
-                st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+        # 🤖 2) GPT 응답 — 기본 펼침
+        with st.expander("🤖 GPT 응답", expanded=True):
+            key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
+            key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
+            key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
+            key_ok = key_from_secrets or key_from_env or key_from_session
+
+            if not key_ok:
+                st.info("OPENAI_API_KEY가 없어 GPT 호출을 생략했습니다.")
+            elif result["판정"] == "악성" and not force_call:
+                st.warning("악성으로 판정되어 GPT 호출이 차단되었습니다. (사이드바 '강행'을 체크하면 호출)")
+            else:
+                try:
+                    from openai import OpenAI
+                    api_key = (
+                        st.secrets.get("OPENAI_API_KEY")
+                        or os.getenv("OPENAI_API_KEY")
+                        or st.session_state.OPENAI_API_KEY
+                    )
+                    client = OpenAI(api_key=api_key)
+                    rsp = client.responses.create(
+                        model=openai_model,
+                        input=[
+                            {"role": "system",
+                             "content": "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
+                            {"role": "user", "content": txt},
+                        ],
+                        temperature=0.3,
+                        top_p=1.0,
+                    )
+                    st.write(rsp.output_text)
+                except Exception as e:
+                    st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+
+        # 🔍 3) 근거 / 플래그 / 세부 — 기본 접힘
+        with st.expander("🔍 근거 / 플래그 / 세부 (펼치기)", expanded=False):
+            st.json({
+                "근거": {
+                    "softmax_gap(|p1-p0|)": result["근거"]["softmax_gap(|p1-p0|)"],
+                    "가중치적용": result["근거"]["가중치적용"],
+                    "플래그": result["근거"]["플래그"],
+                },
+                "세부": result["세부"],
+            })
+
+        # 🧾 4) 원본 전체 JSON — 기본 접힘
+        with st.expander("🧾 원본 결과(JSON) (펼치기)", expanded=False):
+            st.json({k: v for k, v in result.items() if not k.startswith("_")})
