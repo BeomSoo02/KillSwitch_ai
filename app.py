@@ -218,3 +218,31 @@ if run:
         st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
         st.subheader("분석 결과  ↪️")
         st.json({k: v for k, v in result.items() if not k.startswith("_")})
+   
+    
+    # GPT 응답 (한 버튼 안에서 후속 실행)
+    st.subheader("GPT 응답")
+    if not OPENAI_API_KEY:
+        st.info("OPENAI_API_KEY가 없어 GPT 호출은 생략했습니다.")
+    elif result["판정"] == "악성" and not force_call:
+        st.warning("악성으로 판정되어 GPT 호출을 차단했습니다. (사이드바 '강행'을 체크하면 호출)")
+    else:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            sys_prompt = (
+                "You are a helpful assistant. If the user's prompt is clearly harmful or illegal, "
+                "politely refuse and provide safe alternatives."
+            )
+            msgs = [{"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": txt}]
+            rsp = client.chat.completions.create(
+                model=openai_model,
+                messages=msgs,
+                temperature=0.3,
+                top_p=1.0,
+            )
+            st.write(rsp.choices[0].message.content.strip())
+        except Exception as e:
+            st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+            st.caption("429(쿼터 초과) 등 요금제/모델 이름을 확인하세요.")
