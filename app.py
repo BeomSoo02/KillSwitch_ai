@@ -1,6 +1,7 @@
-# app.py — KillSwitch AI (최종본, 옵션 B 적용)
-# - 모델 점수 + 메타가중치(실행형/설명형/위험단어) + softmax 확신(gap) 감쇠
-# - 끝마침표 강제 / 키 상태 / HF 점검 / PyTorch 2.6 대응
+# app.py — KillSwitch AI (부스 전시용 UX)
+# - 한눈에 보이는 판정 카드 + 짧은 이유 (전시용)
+# - 전문가 모드에서만 근거/지표/GPT/JSON 노출
+# - 기존 로직(메타가중치, softmax gap) 유지
 # --------------------------------------------------------------------------------------------
 import os, re, time, unicodedata
 import streamlit as st
@@ -98,7 +99,6 @@ def load_model_tokenizer():
     mdl.to(DEVICE).eval()
     return mdl, tok, thr, torch_loaded, tok_info
 
-# ✅ 중복 캐싱 제거: 함수 자체를 호출자로 사용
 _cached_model = load_model_tokenizer
 
 # ===== 3) 전처리 & 스코어링 =====
@@ -111,7 +111,6 @@ def preprocess(s: str) -> str:
 def _softmax_two(logits: torch.Tensor):
     """이진 분류 가정: p0, p1과 gap(|p1 - p0|) 반환."""
     if logits.size(-1) == 1:
-        # 시그모이드 헤드인 경우, 로짓 하나를 [p0, p1]로 환산
         p1 = torch.sigmoid(logits)[0, 0]
         p0 = 1 - p1
     else:
@@ -131,19 +130,14 @@ def model_forward(mdl, tok, text: str):
     return p0, p1, gap  # p1 = "악성" 확률
 
 # ===== 4) 메타 가중치 탐지 =====
-# 실행형(강한 action) 지표: 명령/실행/우회/구현/제작/코드/스캔/공격/도구화 등
 ACTION_PAT = re.compile(
     r"(해줘|만들어|구현(해|하)|코드(를|로)|스크립트|자동화|우회|우회해|실행해|실행법|공격해|뚫(어|는)|우회하는|차단 해제|크랙|패치|익스플로잇|exploit|payload|실행 가능한|download|다운로드|설치해|주입해|inject)",
     re.IGNORECASE,
 )
-
-# 설명형(info) 지표: 의미/정의/원리/이유/개념/요약/설명/알려줘 등
 INFO_PAT = re.compile(
     r"(의미|정의|원리|이유|개념|동작 원리|왜|무엇|어떻게( 되는| 작동)|설명해|설명|정리해|알려줘|요약|가이드|가르쳐)",
     re.IGNORECASE,
 )
-
-# 위험 단어들(domain risk): 매우 위험 키워드 위주
 DANGER_WORDS = [
     "폭탄", "ddos", "디도스", "살해", "살인", "무기", "총기", "폭발물",
     "랜섬웨어", "백도어", "malware", "악성코드", "키로거", "익스플로잇", "exploit",
@@ -155,7 +149,6 @@ def detect_meta_flags(text: str):
     t = text.lower()
     is_action = bool(ACTION_PAT.search(t))
     is_info   = bool(INFO_PAT.search(t))
-    # 위험 단어 매칭(하나라도 있으면 True)
     is_danger = any(w.lower() in t for w in DANGER_WORDS)
     return is_action, is_info, is_danger
 
@@ -188,7 +181,6 @@ def apply_meta_weights(p1: float, gap: float, is_action: bool, is_info: bool, is
     else:
         adjustments["불확실감쇠(gap<0.10→-0.10)"] = False
 
-    # 0~1로 클램프
     score = max(0.0, min(1.0, score))
     return score, adjustments
 
@@ -234,24 +226,11 @@ def predict(text: str, thr_ui: float):
 # ===== 6) UI =====
 st.title("🛡️ KillSwitch AI")
 
-# 세션 상태(키)
+# ── 사이드바 ──────────────────────────────────────────────────────────────
 if "OPENAI_API_KEY" not in st.session_state:
     st.session_state.OPENAI_API_KEY = ""
 
-# 🔐 키 상태
-with st.sidebar.expander("🔐 키 상태"):
-    key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
-    key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
-    key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
-    key_ok = key_from_secrets or key_from_env or key_from_session
-    st.write("OpenAI Key:", "✅ 감지됨" if key_ok else "❌ 없음")
-    st.caption(
-        f"• Secrets: {'✅' if key_from_secrets else '—'}   "
-        f"• Env: {'✅' if key_from_env else '—'}   "
-        f"• Session: {'✅' if key_from_session else '—'}"
-    )
-
-# 사이드바 옵션
+st.sidebar.header("설정")
 OPENAI_API_KEY = st.sidebar.text_input("OPENAI_API_KEY", value=st.session_state.OPENAI_API_KEY, type="password")
 if OPENAI_API_KEY != st.session_state.OPENAI_API_KEY:
     st.session_state.OPENAI_API_KEY = OPENAI_API_KEY
@@ -259,30 +238,53 @@ if OPENAI_API_KEY != st.session_state.OPENAI_API_KEY:
 openai_model = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")
 thr_ui       = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.70, step=0.05)
 force_call   = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
+expert_mode  = st.sidebar.toggle("🛠️ 전문가 모드", value=False)
 
-# 키워드 확인용
-with st.sidebar.expander("메타 가중치 키워드(확인용)"):
-    st.markdown("**실행형 패턴 예시**: 해줘, 만들어, 구현해, 코드, 스크립트, 우회, 실행해, 공격해, exploit, payload, 다운로드, 설치, inject…")
-    st.markdown("**설명형 패턴 예시**: 의미, 정의, 원리, 이유, 개념, 왜, 무엇, 설명해, 정리해, 알려줘, 요약, 가이드…")
-    st.markdown("**위험 단어 예시**: 폭탄, DDoS, 살해, 무기, 총기, 랜섬웨어, 백도어, 악성코드, 익스플로잇, 해킹, 피싱, 신용카드 번호, 비밀번호 탈취…")
-    st.caption("문맥에 따른 세밀한 분류가 필요하면 여기에 키워드를 추가/조정하세요.")
+with st.sidebar.expander("HF 연결 점검"):
+    st.caption(f"HF: {REPO_ID} ({REPO_TYPE}) / {FILENAME}")
+    if st.button("체크"):
+        try:
+            p = get_ckpt_path()
+            size_mb = os.path.getsize(p) / 1_048_576
+            st.success(f"OK: {os.path.basename(p)} · {size_mb:.1f} MB")
+        except Exception as e:
+            st.error("다운로드 실패")
+            st.exception(e)
 
-# HF 연결 점검
-st.sidebar.caption(f"HF: {REPO_ID} ({REPO_TYPE}) / {FILENAME}")
-if st.sidebar.button("HF 연결 점검"):
-    try:
-        p = get_ckpt_path()
-        size_mb = os.path.getsize(p) / 1_048_576
-        st.sidebar.success(f"OK: {os.path.basename(p)} · {size_mb:.1f} MB")
-    except Exception as e:
-        st.sidebar.error("다운로드 실패")
-        st.sidebar.exception(e)
-
-# 메인 입력
+# ── 메인 입력 ─────────────────────────────────────────────────────────────
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
 
-# ===== 7) 버튼 & 출력(요약/GPT 기본 펼침, 나머지 접힘) =====
-if st.button("분석 (GPT 호출)"):
+# 유틸: 이유 요약 만들기 (부스 전시용 한 줄 설명)
+def summarize_reason(result: dict) -> str:
+    flags = result["근거"]["플래그"]
+    reasons = []
+    if flags["위험단어_domain"]:
+        reasons.append("위험 키워드 포함")
+    if flags["실행형_action"]:
+        reasons.append("실행 지시어 탐지")
+    if flags["설명형_info"]:
+        reasons.append("정보 요청 위주")
+    # 확신도 텍스트화 (gap → high/med/low)
+    g = result["근거"]["softmax_gap(|p1-p0|)"]
+    conf = "높음" if g >= 0.40 else ("보통" if g >= 0.20 else "낮음")
+    return " · ".join(reasons) + f" · 확신도: {conf}"
+
+# GPT 클라이언트 (전시용: 키 있을 때만)
+@st.cache_resource(show_spinner=False)
+def get_openai_client():
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        raise RuntimeError(f"openai 라이브러리 불러오기 실패: {e}")
+    api_key = (
+        st.secrets.get("OPENAI_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or st.session_state.OPENAI_API_KEY
+    )
+    return OpenAI(api_key=api_key) if api_key else None
+
+# ── 버튼 & 출력 ───────────────────────────────────────────────────────────
+if st.button("분석"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
     else:
@@ -291,60 +293,73 @@ if st.button("분석 (GPT 호출)"):
 
         st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
 
-        # ✅ 1) 판정/점수 요약 — 기본 펼침
-        with st.expander("✅ 판정 / 점수 요약", expanded=True):
-            col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1])
-            with col1: st.metric("판정", result["판정"])
-            with col2: st.metric("원점수(p1)", f"{result['원점수(p1)']:.3f}")
-            with col3: st.metric("조정점수", f"{result['조정점수(p1+가중치)']:.3f}")
-            with col4: st.metric("임계값", f"{result['임계값']:.2f}")
-            with col5: st.metric("확신도(gap)", f"{result['근거']['softmax_gap(|p1-p0|)']:.3f}")
+        # ▶ 전시용: 큰 판정 카드 + 간단한 이유
+        verdict = result["판정"]
+        reason = summarize_reason(result)
 
-        # 🤖 2) GPT 응답 — 기본 펼침
-        with st.expander("🤖 GPT 응답", expanded=True):
-            key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
-            key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
-            key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
-            key_ok = key_from_secrets or key_from_env or key_from_session
+        if verdict == "악성":
+            st.markdown(
+                f"""
+                <div style="padding:18px;border-radius:14px;background:#ffe8e6;border:1px solid #ffb4ac">
+                  <div style="font-size:22px;font-weight:700;color:#8c1d18;">⚠️ 위험한 요청으로 판단했습니다</div>
+                  <div style="margin-top:6px;font-size:16px;color:#5a1a17;">사유: {reason}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div style="padding:18px;border-radius:14px;background:#e8f5e9;border:1px solid #b7e1be">
+                  <div style="font-size:22px;font-weight:700;color:#1b5e20;">✅ 안전한 요청입니다</div>
+                  <div style="margin-top:6px;font-size:16px;color:#1b5e20;">사유: {reason}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-            if not key_ok:
-                st.info("OPENAI_API_KEY가 없어 GPT 호출을 생략했습니다.")
-            elif result["판정"] == "악성" and not force_call:
-                st.warning("악성으로 판정되어 GPT 호출이 차단되었습니다. (사이드바 '강행'을 체크하면 호출)")
-            else:
-                try:
-                    from openai import OpenAI
-                    api_key = (
-                        st.secrets.get("OPENAI_API_KEY")
-                        or os.getenv("OPENAI_API_KEY")
-                        or st.session_state.OPENAI_API_KEY
-                    )
-                    client = OpenAI(api_key=api_key)
-                    rsp = client.responses.create(
-                        model=openai_model,
-                        input=[
-                            {"role": "system",
-                             "content": "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
-                            {"role": "user", "content": txt},
-                        ],
-                        temperature=0.3,
-                        top_p=1.0,
-                    )
-                    st.write(rsp.output_text)
-                except Exception as e:
-                    st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+        # ▶ 전문가 모드: 세부/지표/GPT/JSON 노출
+        if expert_mode:
+            with st.expander("🔎 세부 지표", expanded=False):
+                c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
+                with c1: st.metric("판정", verdict)
+                with c2: st.metric("원점수(p1)", f"{result['원점수(p1)']:.3f}")
+                with c3: st.metric("조정점수", f"{result['조정점수(p1+가중치)']:.3f}")
+                with c4: st.metric("임계값", f"{result['임계값']:.2f}")
+                with c5: st.metric("확신도(gap)", f"{result['근거']['softmax_gap(|p1-p0|)']:.3f}")
+                st.caption(f"device={result['세부']['device']} · tokenizer={result['세부']['tokenizer']} · torch_loaded={result['세부']['torch_loaded']}")
 
-        # 🔍 3) 근거 / 플래그 / 세부 — 기본 접힘
-        with st.expander("🔍 근거 / 플래그 / 세부 (펼치기)", expanded=False):
-            st.json({
-                "근거": {
-                    "softmax_gap(|p1-p0|)": result["근거"]["softmax_gap(|p1-p0|)"],
-                    "가중치적용": result["근거"]["가중치적용"],
-                    "플래그": result["근거"]["플래그"],
-                },
-                "세부": result["세부"],
-            })
+            with st.expander("🤖 GPT 응답", expanded=False):
+                key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
+                key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
+                key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
+                key_ok = key_from_secrets or key_from_env or key_from_session
 
-        # 🧾 4) 원본 전체 JSON — 기본 접힘
-        with st.expander("🧾 원본 결과(JSON) (펼치기)", expanded=False):
-            st.json({k: v for k, v in result.items() if not k.startswith("_")})
+                if not key_ok:
+                    st.info("OPENAI_API_KEY가 없어 GPT 호출을 생략했습니다.")
+                elif verdict == "악성" and not force_call:
+                    st.warning("악성으로 판정되어 GPT 호출이 차단되었습니다. (사이드바 '강행'을 체크하면 호출)")
+                else:
+                    try:
+                        client = get_openai_client()
+                        if client is None:
+                            st.info("API Key가 설정되지 않았습니다.")
+                        else:
+                            rsp = client.responses.create(
+                                model=openai_model,
+                                input=[
+                                    {"role": "system",
+                                     "content": "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
+                                    {"role": "user", "content": txt},
+                                ],
+                                temperature=0.3,
+                                top_p=1.0,
+                            )
+                            st.write(rsp.output_text)
+                    except Exception as e:
+                        st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+
+            with st.expander("🧾 원본 결과(JSON)", expanded=False):
+                st.json({k: v for k, v in result.items() if not k.startswith("_")})
+        else:
+            st.caption("전문가 모드를 켜면 근거와 GPT 응답을 확인할 수 있습니다. (사이드바 → 🛠️)")
