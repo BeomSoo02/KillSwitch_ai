@@ -1,6 +1,7 @@
-streamlit>=1.33.0
-transformers>=4.42.0
-torch>=2.1.0
-accelerate>=0.30.0
-huggingface_hub>=0.23.0
+streamlit
+transformers
+torch
+accelerate
+huggingface_hub
 sentencepiece
+safetensors      # (.safetensors 쓰는 경우 대비)
