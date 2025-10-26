@@ -3,5 +3,5 @@
 REPO_ID = "BeomSoo02/prompt-guard-killswitch"  
 REVISION = "v1.0.0"  # ← 태그/커밋SHA로 고정 (main 금지)
 
-DEFAULT_THRESHOLD = 0.50  # 0.95 → 0.50 (미탐 줄이기)
+DEFAULT_THRESHOLD = 0.50  
 MAX_LEN = 256
