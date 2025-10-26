@@ -1,5 +1,7 @@
-REPO_ID  = "cookiechips/KillSwitch_ai"  # 정확히 이 문자열
-REVISION = "main"  # 일단 main으로 테스트. 태그를 쓰면 해당 태그가 실제로 존재해야 함.
+REPO_ID  = "cookiechips/KillSwitch_ai"
+REVISION = "main"           # 태그 없다면 일단 main으로
+BASE_MODEL = "microsoft/deberta-v3-base"  # v3는 DebertaV2 아키텍처
 DEFAULT_THRESHOLD = 0.50
 MAX_LEN = 256
-BASE_MODEL = "microsoft/deberta-v3-base"  # 토크나이저 폴백용
+# (선택) 파일명을 아는 경우 명시
+HF_CKPT_FILENAME = "prompt_guard_best.pt"
