@@ -114,37 +114,7 @@ def load_model_tokenizer():
 def _cached_model():
     return load_model_tokenizer()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3-0) 간단 규칙 기반 탐지기 (fallback)
-# ─────────────────────────────────────────────────────────────────────────────
-RULE_PATTERNS = [
-    # 보안/해킹
-    ("비밀번호 탈취", 0.7), ("주민등록번호", 0.6), ("여권번호", 0.6),
-    ("신용카드 번호", 0.6), ("백도어", 0.7), ("랜섬웨어", 0.8),
-    ("익스플로잇", 0.6), ("취약점 악용", 0.6), ("ddos", 0.7),
-    ("사회공학", 0.6), ("소셜 엔지니어링", 0.6), ("피싱", 0.6),
-    # 범죄/폭력
-    ("폭탄", 0.9), ("총기", 0.9), ("살해", 0.9), ("죽이는 방법", 0.9),
-    # 혐오/선동
-    ("증오 발언", 0.6), ("특정 인종 공격", 0.8), ("폭동 선동", 0.8),
-    # 영어 키워드
-    ("password", 0.6), ("credential", 0.6), ("backdoor", 0.7),
-    ("ransomware", 0.8), ("exploit", 0.6), ("phishing", 0.6),
-    ("bomb", 0.9), ("gun", 0.9), ("kill", 0.9), ("murder", 0.9),
-    ("hate speech", 0.6), ("riot", 0.8),
-]
 
-def rule_detect(text: str):
-    """키워드 기반 점수 (0~1)와 매칭된 키워드 목록 반환"""
-    t = (text or "").lower()
-    score = 0.0
-    hits = []
-    for kw, w in RULE_PATTERNS:
-        if kw.lower() in t:
-            score += w
-            hits.append(kw)
-    score = max(0.0, min(1.0, score))
-    return score, hits
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3) 추론 & 융합 로직
@@ -176,7 +146,6 @@ def predict(text: str, thr_ui: float):
         "점수": round(score, 3),
         "임계값": round(thr, 3),
         "판정": label,
-        "키워드": r_keys or ["-"],
         "세부": {
             "rule_score": round(r_score, 3),
             "model_score": round(m_score, 3),
