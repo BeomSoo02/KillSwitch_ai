@@ -1,7 +1,6 @@
-streamlit
+openai>=1.14.0
+huggingface_hub
 transformers
 torch
-accelerate
-huggingface_hub
 sentencepiece
-safetensors      # (.safetensors 쓰는 경우 대비)
+streamlit
