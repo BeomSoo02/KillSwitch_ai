@@ -261,7 +261,7 @@ thr_ui       = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.50, s
 force_call   = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
 
 # 키워드 확인용
-with st.sidebar.expander("🧪 메타 가중치 키워드(확인용)"):
+with st.sidebar.expander("메타 가중치 키워드(확인용)"):
     st.markdown("**실행형 패턴 예시**: 해줘, 만들어, 구현해, 코드, 스크립트, 우회, 실행해, 공격해, exploit, payload, 다운로드, 설치, inject…")
     st.markdown("**설명형 패턴 예시**: 의미, 정의, 원리, 이유, 개념, 왜, 무엇, 설명해, 정리해, 알려줘, 요약, 가이드…")
     st.markdown("**위험 단어 예시**: 폭탄, DDoS, 살해, 무기, 총기, 랜섬웨어, 백도어, 악성코드, 익스플로잇, 해킹, 피싱, 신용카드 번호, 비밀번호 탈취…")
@@ -281,7 +281,7 @@ if st.sidebar.button("HF 연결 점검"):
 # 메인 입력
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
 
-if col_btn2.button("분석 (GPT 호출)"):
+if col_btn.button("분석 (GPT 호출)"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
     else:
