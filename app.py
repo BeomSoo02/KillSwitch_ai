@@ -1,6 +1,6 @@
-# app.py — KillSwitch AI (최종본, 옵션 B 적용)
+# app.py — KillSwitch AI (최종본, 상단 요약 → GPT → 세부)
 # - 모델 점수 + 메타가중치(실행형/설명형/위험단어) + softmax 확신(gap) 감쇠
-# - 끝마침표 강제 / 키 상태 / HF 점검 / PyTorch 2.6 대응
+# - 끝마침표 강제 / 키 상태 / HF 점검 / PyTorch 2.6 대응 / 요약-우선 UI
 # --------------------------------------------------------------------------------------------
 import os, re, time, unicodedata
 import streamlit as st
@@ -281,19 +281,37 @@ if st.sidebar.button("HF 연결 점검"):
 # 메인 입력
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
 
-# GPT 호출 포함 분석 버튼 (스크린샷 UI 유지)
+# ===== 7) 버튼: 분석 (상단 요약 → GPT → 세부/로그) =====
 if st.button("분석 (GPT 호출)"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
     else:
         with st.spinner("분석 중..."):
             result = predict(txt, thr_ui)
-        st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
-        st.subheader("분석 결과  ↪️")
-        st.json({k: v for k, v in result.items() if not k.startswith("_")})
 
-        # GPT 호출
-        st.subheader("GPT 응답")
+        # ① 최상단 요약
+        st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
+        st.markdown("### ✅ 요약")
+        p1_raw   = result["원점수(p1)"]
+        p1_adj   = result["조정점수(p1+가중치)"]
+        thr_val  = result["임계값"]
+        label    = result["판정"]
+        gap_val  = result["근거"]["softmax_gap(|p1-p0|)"]
+
+        c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
+        with c1:
+            st.metric("판정", label)
+        with c2:
+            st.metric("원점수(p1)", f"{p1_raw:.3f}")
+        with c3:
+            st.metric("조정점수", f"{p1_adj:.3f}")
+        with c4:
+            st.metric("임계값", f"{thr_val:.2f}")
+        with c5:
+            st.metric("확신도(gap)", f"{gap_val:.3f}")
+
+        # ② GPT 응답
+        st.markdown("### 🤖 GPT 응답")
         key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
         key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
         key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
@@ -301,7 +319,7 @@ if st.button("분석 (GPT 호출)"):
 
         if not key_ok:
             st.info("OPENAI_API_KEY가 없어 GPT 호출을 생략했습니다.")
-        elif result["판정"] == "악성" and not force_call:
+        elif label == "악성" and not force_call:
             st.warning("악성으로 판정되어 GPT 호출이 차단되었습니다. (사이드바 '강행'을 체크하면 호출)")
         else:
             try:
@@ -316,8 +334,7 @@ if st.button("분석 (GPT 호출)"):
                     model=openai_model,
                     input=[
                         {"role": "system",
-                         "content":
-                         "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
+                         "content": "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
                         {"role": "user", "content": txt},
                     ],
                     temperature=0.3,
@@ -326,3 +343,15 @@ if st.button("분석 (GPT 호출)"):
                 st.write(rsp.output_text)
             except Exception as e:
                 st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+
+        # ③ 세부/근거 (아래로 내림)
+        with st.expander("🔍 근거 / 메타 세부 보기"):
+            st.json({
+                "softmax_gap(|p1-p0|)": gap_val,
+                "가중치적용": result["근거"]["가중치적용"],
+                "플래그": result["근거"]["플래그"],
+                "세부": result["세부"],
+            })
+
+        with st.expander("🧾 원본 결과(JSON)"):
+            st.json({k: v for k, v in result.items() if not k.startswith("_")})
