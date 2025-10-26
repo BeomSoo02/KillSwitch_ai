@@ -257,7 +257,7 @@ if OPENAI_API_KEY != st.session_state.OPENAI_API_KEY:
     st.session_state.OPENAI_API_KEY = OPENAI_API_KEY
 
 openai_model = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")
-thr_ui       = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.50, step=0.05)
+thr_ui       = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.70, step=0.05)
 force_call   = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
 
 # 키워드 확인용
