@@ -1,46 +1,65 @@
-# safety_core.py
-import os
-import torch
+import os, torch
+import streamlit as st
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from typing import List, Tuple
-from config import REPO_ID, REVISION, MAX_LEN
+from huggingface_hub import hf_hub_download, HfApi
+from config import REPO_ID, REVISION, MAX_LEN, BASE_MODEL
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def _get_hf_token() -> str | None:
-    # Streamlit Cloud에서는 st.secrets를 사용하는 편이 좋지만,
-    # lib 독립을 위해 여기선 환경변수만 본다. (app.py에서 secrets를 env로 주입 가능)
-    return os.getenv("HF_TOKEN", None)
+def _hf_token():
+    # Streamlit Cloud에서는 st.secrets에 HF_TOKEN을 넣어두면 app.py에서 env로 주입됨
+    return os.getenv("HF_TOKEN")
 
-# Streamlit에서 캐시할 것이므로 함수 자체는 순수하게 유지
+def _exists_revision(repo_id: str, revision: str, token: str | None):
+    try:
+        info = HfApi().model_info(repo_id, revision=revision, token=token)
+        return True, f"ok ({info.sha[:7]})"
+    except Exception as e:
+        return False, str(e)
+
 def load_model():
-    hf_token = _get_hf_token()
-    tokenizer = AutoTokenizer.from_pretrained(
-        REPO_ID, revision=REVISION, use_auth_token=hf_token, trust_remote_code=False
-    )
-    model = AutoModelForSequenceClassification.from_pretrained(
-        REPO_ID, revision=REVISION, use_auth_token=hf_token, trust_remote_code=False
-    )
-    model.to(DEVICE)
-    model.eval()
+    token = _hf_token()
+
+    # 0) 리비전 확인 (원인 즉시 노출)
+    ok, msg = _exists_revision(REPO_ID, REVISION, token)
+    if not ok:
+        st.error(f"[HF] REVISION 확인 실패: {msg}")
+        st.info("config.py의 REVISION을 'main'으로 바꾸거나, 실제 태그/커밋으로 설정하세요.")
+        # 그래도 진행 시도 (main으로 폴백)
+        rev = "main"
+    else:
+        rev = REVISION
+
+    # 1) 토크나이저 로딩 (리포에 없으면 BASE_MODEL로 폴백)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            REPO_ID, revision=rev, use_auth_token=token, trust_remote_code=False
+        )
+    except Exception as e:
+        st.warning(f"[HF] 리포에서 토크나이저 로드 실패 → BASE_MODEL로 폴백: {e}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            BASE_MODEL, use_auth_token=token, trust_remote_code=False
+        )
+
+    # 2) 모델 로딩 (Transformers 형식 가정)
+    try:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            REPO_ID, revision=rev, use_auth_token=token, trust_remote_code=False
+        )
+    except Exception as e:
+        # 만약 repo에 safetensors만 있고 포맷이 어긋나면, 직접 파일 받아 로드하는 경로를 추가
+        st.error(f"[HF] 모델 로드 실패: {e}")
+        raise
+
+    model.to(DEVICE).eval()
     return tokenizer, model
 
 @torch.no_grad()
-def predict_proba(texts: List[str], tokenizer, model) -> List[float]:
-    """
-    returns: 악성 클래스(1)의 확률 리스트
-    """
-    enc = tokenizer(
-        texts,
-        padding=True,
-        truncation=True,
-        max_length=MAX_LEN,
-        return_tensors="pt"
-    )
+def predict_proba(texts, tokenizer, model):
+    enc = tokenizer(texts, padding=True, truncation=True, max_length=MAX_LEN, return_tensors="pt")
     enc = {k: v.to(DEVICE) for k, v in enc.items()}
-    logits = model(**enc).logits
-    probs = torch.softmax(logits, dim=-1)[:, 1]  # class-1 = 악성
+    probs = torch.softmax(model(**enc).logits, dim=-1)[:, 1]
     return probs.detach().cpu().tolist()
 
-def predict_one(text: str, tokenizer, model) -> float:
+def predict_one(text, tokenizer, model):
     return predict_proba([text], tokenizer, model)[0]
