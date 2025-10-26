@@ -1,21 +1,20 @@
-# app.py — KillSwitch AI · Streamlit 데모 (세션 유지 + 마침표 강건화 + 키 상태)
+# app.py — KillSwitch AI · Streamlit 데모 (모델 점수만 + 마침표 강건화 + 키 상태)
 # ----------------------------------------------------------------------
 # ✔ HF 체크포인트 로딩 (state_dict)
-# ✔ 규칙(rule) + 모델 점수 융합 (보수적 max)
-# ✔ 마침표 강건화(원문/제거/추가) + mean/max 선택
+# ✔ 모델 점수만 사용(규칙/키워드 전부 제거)
+# ✔ 마침표 강건화(원본/제거/추가) + mean/max 선택
 # ✔ 사이드바 OPENAI_API_KEY 입력(세션 유지, password)
 # ✔ 🔐 키 상태 표시 (Secrets/Env/Session)
 # ✔ 필요 시 GPT 호출 (Responses API)
 # ----------------------------------------------------------------------
 
-import os, time, re, json, unicodedata
+import os, re, unicodedata
 import streamlit as st
 
-# 0) 페이지 설정
 st.set_page_config(page_title="KillSwitch AI", layout="wide")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1) 환경/시크릿 설정
+# 1) 환경/시크릿
 # ─────────────────────────────────────────────────────────────────────────────
 DEFAULT_REPO_ID   = "your-username/killswitch-ai-checkpoints"
 DEFAULT_REPO_TYPE = "model"
@@ -77,7 +76,7 @@ def load_model_tokenizer():
         thr = float(ckpt.get("val_thr", 0.5)) if isinstance(ckpt, dict) else 0.5
         torch_loaded = True
     except Exception as e:
-        st.info("체크포인트를 불러오지 못했습니다(규칙 기반만 사용).")
+        st.info("체크포인트를 불러오지 못했습니다(모델 미로딩).")
         st.caption(str(e))
 
     mdl.eval()
@@ -85,17 +84,22 @@ def load_model_tokenizer():
 
 _cached_model = st.cache_resource(show_spinner=False)(load_model_tokenizer)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 3) 전처리 & 마침표 강건화 스코어
+# ─────────────────────────────────────────────────────────────────────────────
+def preprocess(s: str) -> str:
+    """NFKC 정규화 + 공백 정리"""
+    s = unicodedata.normalize("NFKC", s or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3) 모델 스코어 — 마침표 강건화
-# ─────────────────────────────────────────────────────────────────────────────
 @torch.no_grad()
 def score_once(mdl, tok, text: str) -> float:
     enc = tok(text, return_tensors="pt", truncation=True, padding=True, max_length=256)
     logits = mdl(**enc).logits
-    if logits.size(-1) == 1:
+    if logits.size(-1) == 1:   # 시그모이드 헤드
         return torch.sigmoid(logits)[0, 0].item()
-    return torch.softmax(logits, dim=-1)[0, 1].item()
+    return torch.softmax(logits, dim=-1)[0, 1].item()  # 소프트맥스 1(악성) 확률
 
 def robust_score(mdl, tok, text: str, method: str = "mean") -> float:
     """문장 끝의 마침표 유무에 강건: 원문 / 마침표 제거 / 마침표 강제 추가 3회 평가."""
@@ -106,35 +110,24 @@ def robust_score(mdl, tok, text: str, method: str = "mean") -> float:
     return max(scores) if method == "max" else sum(scores) / len(scores)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4) 추론 & 융합
+# 4) 추론 (모델 점수만)
 # ─────────────────────────────────────────────────────────────────────────────
 def predict(text: str, thr_ui: float, dot_robust: bool, robust_method: str):
     text = preprocess(text)
     mdl, tok, thr_ckpt, torch_loaded = _cached_model()
 
-    # 규칙 점수
-    r_score, r_keys = rule_detect(text)
-
-    # 모델 점수 (강건화 선택)
     m_score = 0.0
     if torch_loaded:
-        if dot_robust:
-            m_score = robust_score(mdl, tok, text, method=robust_method)
-        else:
-            m_score = score_once(mdl, tok, text)
+        m_score = robust_score(mdl, tok, text, method=robust_method) if dot_robust else score_once(mdl, tok, text)
 
-    # 보수적 융합
-    score = max(r_score, m_score)
     thr = float(thr_ui if thr_ui is not None else thr_ckpt)
-    label = "악성" if score >= thr else "안전"
+    label = "악성" if m_score >= thr else "안전"
 
     return {
-        "점수": round(score, 3),
+        "점수": round(m_score, 3),
         "임계값": round(thr, 3),
         "판정": label,
-        "키워드": r_keys or ["-"],
         "세부": {
-            "rule_score": round(r_score, 3),
             "model_score": round(m_score, 3),
             "torch_loaded": bool(torch_loaded),
             "dot_robust": bool(dot_robust),
@@ -151,7 +144,7 @@ st.title("🛡️ KillSwitch AI")
 if "OPENAI_API_KEY" not in st.session_state:
     st.session_state.OPENAI_API_KEY = ""
 
-# 🔐 키 상태 표시 (Secrets/Env/Session 모두 확인)
+# 🔐 키 상태 표시
 with st.sidebar.expander("🔐 키 상태"):
     key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
     key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
@@ -177,7 +170,7 @@ if OPENAI_API_KEY != st.session_state.OPENAI_API_KEY:
 openai_model   = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")
 thr_ui         = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.5, step=0.05)
 dot_robust     = st.sidebar.checkbox("마침표 강건화(권장)", value=True)
-robust_method  = st.sidebar.selectbox("강건화 방식", ["mean", "max"], index=0)
+robust_method  = st.sidebar.radio("강건화 방식", ["mean", "max"], index=0, horizontal=True)
 force_call     = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
 
 st.sidebar.caption(f"HF: {REPO_ID} ({REPO_TYPE}) / {FILENAME}")
