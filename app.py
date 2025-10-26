@@ -1,4 +1,4 @@
-# app.py — KillSwitch AI (최종본)
+# app.py — KillSwitch AI (최종본, 옵션 B 적용)
 # - 모델 점수 + 메타가중치(실행형/설명형/위험단어) + softmax 확신(gap) 감쇠
 # - 끝마침표 강제 / 키 상태 / HF 점검 / PyTorch 2.6 대응
 # --------------------------------------------------------------------------------------------
@@ -8,7 +8,7 @@ import streamlit as st
 st.set_page_config(page_title="KillSwitch AI", layout="wide")
 
 # ===== 1) 환경/시크릿 =====
-DEFAULT_REPO_ID   = "cookiechips/KillSwitch_ai"   # 기본값: 사용 중이던 공개 리포
+DEFAULT_REPO_ID   = "cookiechips/KillSwitch_ai"   # 기본값: 공개 리포
 DEFAULT_REPO_TYPE = "model"
 DEFAULT_FILENAME  = "prompt_guard_best.pt"
 
@@ -21,9 +21,9 @@ HF_DIR    = st.secrets.get("HF_DIR")       or os.getenv("HF_DIR")       # 완전
 BASE_MODEL = os.getenv("BASE_MODEL") or "microsoft/deberta-v3-base"
 NUM_LABELS = int(os.getenv("NUM_LABELS") or 2)
 
-# 메타 가중치(요청 사양)
+# 메타 가중치
 W_ACTION   = 0.15   # 실행형(강한 action)
-W_INFO     = -0.15  # 설명형(info)
+W_INFO     = -0.15  # 설명형(info) — 순수 정보성일수록 감산
 W_DOMAIN   = 0.25   # 위험 단어(domain risk)
 GAP_THR    = 0.10   # softmax 확신 임계값
 W_UNCERT   = -0.10  # gap < 0.10이면 불확실 → 감쇠
@@ -98,7 +98,8 @@ def load_model_tokenizer():
     mdl.to(DEVICE).eval()
     return mdl, tok, thr, torch_loaded, tok_info
 
-_cached_model = st.cache_resource(show_spinner=False)(load_model_tokenizer)
+# ✅ 중복 캐싱 제거: 함수 자체를 호출자로 사용
+_cached_model = load_model_tokenizer
 
 # ===== 3) 전처리 & 스코어링 =====
 def preprocess(s: str) -> str:
@@ -181,15 +182,15 @@ def apply_meta_weights(p1: float, gap: float, is_action: bool, is_info: bool, is
     else:
         adjustments["위험단어(+0.25)"] = False
 
-    uncertainty_penalty = 0.0
     if gap < GAP_THR:
         score += W_UNCERT
-        uncertainty_penalty = W_UNCERT
-    adjustments["불확실감쇠(gap<0.10→-0.10)"] = (gap < GAP_THR)
+        adjustments["불확실감쇠(gap<0.10→-0.10)"] = True
+    else:
+        adjustments["불확실감쇠(gap<0.10→-0.10)"] = False
 
     # 0~1로 클램프
     score = max(0.0, min(1.0, score))
-    return score, adjustments, uncertainty_penalty
+    return score, adjustments
 
 # ===== 5) 예측 파이프라인 =====
 def predict(text: str, thr_ui: float):
@@ -203,7 +204,7 @@ def predict(text: str, thr_ui: float):
         p0, p1, gap = 1.0, 0.0, 0.0  # 모델 미로딩 시 안전 쪽으로 치우치게(원점수=0)
 
     is_action, is_info, is_danger = detect_meta_flags(text)
-    adj_score, adj_map, uncert_pen = apply_meta_weights(p1, gap, is_action, is_info, is_danger)
+    adj_score, adj_map = apply_meta_weights(p1, gap, is_action, is_info, is_danger)
 
     thr = float(thr_ui if thr_ui is not None else thr_ckpt)
     label = "악성" if adj_score >= thr else "안전"
@@ -214,8 +215,7 @@ def predict(text: str, thr_ui: float):
         "임계값": round(thr, 3),
         "판정": label,
         "근거": {
-            "softmax_gap(|p1-p0|)": round(gap, 3),
-            "불확실감쇠_적용여부": adj_map["불확실감쇠(gap<0.10→-0.10)"],
+            "softmax_gap(|p1-p0|)": round(abs(p1 - p0), 3),
             "가중치적용": adj_map,
             "플래그": {
                 "실행형_action": is_action,
@@ -280,7 +280,8 @@ if st.sidebar.button("HF 연결 점검"):
 
 # 메인 입력
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
-# GPT 호출만 남김
+
+# GPT 호출 포함 분석 버튼 (스크린샷 UI 유지)
 if st.button("분석 (GPT 호출)"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
@@ -325,4 +326,3 @@ if st.button("분석 (GPT 호출)"):
                 st.write(rsp.output_text)
             except Exception as e:
                 st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
-
