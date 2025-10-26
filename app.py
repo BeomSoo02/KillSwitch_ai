@@ -281,17 +281,6 @@ if st.sidebar.button("HF 연결 점검"):
 # 메인 입력
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
 
-col_btn1, col_btn2 = st.columns([1,1])
-if col_btn1.button("분석만"):
-    if not (txt and txt.strip()):
-        st.warning("텍스트를 입력하세요.")
-    else:
-        with st.spinner("분석 중..."):
-            result = predict(txt, thr_ui)
-        st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
-        st.subheader("분석 결과  ↪️")
-        st.json({k: v for k, v in result.items() if not k.startswith("_")})
-
 if col_btn2.button("분석 (GPT 호출)"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
