@@ -203,7 +203,7 @@ if OPENAI_API_KEY != st.session_state.OPENAI_API_KEY:
     st.session_state.OPENAI_API_KEY = OPENAI_API_KEY
 
 openai_model   = st.sidebar.text_input("OpenAI 모델", value="gpt-4o-mini")
-thr_ui         = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.35, step=0.05)
+thr_ui         = st.sidebar.slider("임계값(차단 기준)", 0.05, 0.95, 0.5, step=0.05)
 dot_robust     = st.sidebar.checkbox("마침표 강건화(권장)", value=True)
 robust_method  = st.sidebar.selectbox("강건화 방식", ["mean", "max"], index=0)
 force_call     = st.sidebar.checkbox("위험해도 GPT 호출 강행", value=False)
