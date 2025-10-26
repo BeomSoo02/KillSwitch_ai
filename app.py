@@ -205,19 +205,44 @@ if st.sidebar.button("HF 연결 점검"):
         st.sidebar.error("다운로드 실패")
         st.sidebar.exception(e)
 
-# 입력 & 실행
-txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
-run = st.button("분석")
+# 입력 & 버튼 (단일 버튼)
+txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘.")
+run = st.button("분석 (GPT 호출)")
 
 if run:
-    if not (txt and txt.strip()):
-        st.warning("텍스트를 입력하세요.")
+    with st.spinner("분석 중..."):
+        result = predict(txt, thr_ui=thr_ui)
+    st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
+
+    # 분석 결과
+    st.subheader("분석 결과  ↪️")
+    st.json({k: v for k, v in result.items() if not k.startswith("_")})
+
+    # GPT 응답 (한 버튼 안에서 후속 실행)
+    st.subheader("GPT 응답")
+    if not OPENAI_API_KEY:
+        st.info("OPENAI_API_KEY가 없어 GPT 호출은 생략했습니다.")
+    elif result["판정"] == "악성" and not force_call:
+        st.warning("악성으로 판정되어 GPT 호출을 차단했습니다. (사이드바 '강행'을 체크하면 호출)")
     else:
-        with st.spinner("분석 중..."):
-            result = predict(txt.strip(), thr_ui=thr_ui, dot_robust=dot_robust, robust_method=robust_method)
-        st.success(f"분석 완료 ({result['_elapsed_s']:.2f}s)")
-        st.subheader("분석 결과  ↪️")
-        st.json({k: v for k, v in result.items() if not k.startswith("_")})
-   
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            sys_prompt = (
+                "You are a helpful assistant. If the user's prompt is clearly harmful or illegal, "
+                "politely refuse and provide safe alternatives."
+            )
+            msgs = [{"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": txt}]
+            rsp = client.chat.completions.create(
+                model=openai_model,
+                messages=msgs,
+                temperature=0.3,
+                top_p=1.0,
+            )
+            st.write(rsp.choices[0].message.content.strip())
+        except Exception as e:
+            st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+            st.caption("429(쿼터 초과) 등 요금제/모델 이름을 확인하세요.")
     
     
