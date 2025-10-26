@@ -1,25 +1,19 @@
-# app.py
-import os
-import streamlit as st
-from typing import List, Dict
+import os, streamlit as st
 from safety_core import load_model, predict_one, predict_proba
 from config import DEFAULT_THRESHOLD
 
-st.set_page_config(page_title="KillSwitch AI - Prompt Guard", page_icon="🛡️")
+st.set_page_config(page_title="KillSwitch AI — Prompt Guard", page_icon="🛡️")
 
-st.title("🛡️ KillSwitch AI — Prompt Guard (Classifier)")
-st.caption("Hugging Face Hub 모델을 리비전 고정으로 로드합니다. Threshold는 자유롭게 조절하세요.")
-
-# ✅ Streamlit Cloud에서 secrets에 HF_TOKEN이 있다면 환경변수로 주입
+# Streamlit Cloud라면 Secrets에 HF_TOKEN을 넣어두고 아래가 자동 주입되도록
 if "HF_TOKEN" in st.secrets:
     os.environ["HF_TOKEN"] = st.secrets["HF_TOKEN"]
 
-# ✅ 모델/토크나이저 캐시
 @st.cache_resource(show_spinner=True)
 def _get_resources():
     return load_model()
 
 tokenizer, model = _get_resources()
+
 
 # ---------- UI ----------
 left, right = st.columns([2, 1])
