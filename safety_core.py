@@ -1,51 +1,46 @@
+# safety_core.py
+import os
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from typing import List, Tuple
+from config import REPO_ID, REVISION, MAX_LEN
 
-import os, re, math, glob
-from typing import Dict, Any
-import numpy as np
-import torch, torch.nn as nn
-from transformers import AutoTokenizer, AutoModel
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-MODEL_NAME   = os.getenv("PAIR_MODEL_NAME", "microsoft/deberta-v3-small")
-MAX_LEN      = int(os.getenv("MAX_LEN", "192"))
-RANK_TAU     = float(os.getenv("RANK_TAU", "0.75"))
-THRESHOLD    = float(os.getenv("THRESHOLD", "0.60"))
-USE_TRANSLATION = os.getenv("USE_TRANSLATION", "true").lower() == "true"
+def _get_hf_token() -> str | None:
+    # Streamlit Cloud에서는 st.secrets를 사용하는 편이 좋지만,
+    # lib 독립을 위해 여기선 환경변수만 본다. (app.py에서 secrets를 env로 주입 가능)
+    return os.getenv("HF_TOKEN", None)
 
-# 체크포인트 경로: 우선 환경변수, 없으면 HF Hub에서 받아오기
-CKPT_PATH = os.getenv("PAIR_CKPT_PATH")
-if not CKPT_PATH:
-    try:
-        from huggingface_hub import hf_hub_download
-        repo = os.getenv("HF_REPO_ID")
-        fname = os.getenv("HF_CKPT_FILENAME", "killswitch_ai_demo_zero_1.pt")
-        tok = os.getenv("HF_TOKEN")
-        if repo:
-            CKPT_PATH = hf_hub_download(repo_id=repo, filename=fname, repo_type="model", token=tok)
-    except Exception:
-        CKPT_PATH = None
-if not CKPT_PATH:
-    hits = glob.glob("**/killswitch_ai_demo_zero_*.pt", recursive=True)
-    if hits: CKPT_PATH = sorted(hits)[-1]
+# Streamlit에서 캐시할 것이므로 함수 자체는 순수하게 유지
+def load_model():
+    hf_token = _get_hf_token()
+    tokenizer = AutoTokenizer.from_pretrained(
+        REPO_ID, revision=REVISION, use_auth_token=hf_token, trust_remote_code=False
+    )
+    model = AutoModelForSequenceClassification.from_pretrained(
+        REPO_ID, revision=REVISION, use_auth_token=hf_token, trust_remote_code=False
+    )
+    model.to(DEVICE)
+    model.eval()
+    return tokenizer, model
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+@torch.no_grad()
+def predict_proba(texts: List[str], tokenizer, model) -> List[float]:
+    """
+    returns: 악성 클래스(1)의 확률 리스트
+    """
+    enc = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=MAX_LEN,
+        return_tensors="pt"
+    )
+    enc = {k: v.to(DEVICE) for k, v in enc.items()}
+    logits = model(**enc).logits
+    probs = torch.softmax(logits, dim=-1)[:, 1]  # class-1 = 악성
+    return probs.detach().cpu().tolist()
 
-class MeanPooler(nn.Module):
-    def forward(self, h, m):
-        m = m.unsqueeze(-1).float()
-        return (h*m).sum(1) / m.sum(1).clamp_min(1.0)
-
-class PairScorer(nn.Module):
-    def __init__(self, base):
-        super().__init__()
-        self.bb = AutoModel.from_pretrained(base)
-        if hasattr(self.bb.config, "use_cache"):
-            try: self.bb.config.use_cache = False
-            except: pass
-        self.pool = MeanPooler(); self.drop = nn.Dropout(0.10)
-        self.head = nn.Linear(self.bb.config.hidden_size, 1)
-    def score(self, ids, msk):
-        out = self.bb(input_ids=ids, attention_mask=msk)
-        x = self.pool(out.last_hidden_state, msk)
-        x = self.drop(x)
-        return self.head(x).squeeze(-1)
+def predict_one(text: str, tokenizer, model) -> float:
+    return predict_proba([text], tokenizer, model)[0]
