@@ -280,8 +280,8 @@ if st.sidebar.button("HF 연결 점검"):
 
 # 메인 입력
 txt = st.text_area("프롬프트", height=140, placeholder="예) 인천 맛집 알려줘")
-
-if col_btn.button("분석 (GPT 호출)"):
+# GPT 호출만 남김
+if st.button("분석 (GPT 호출)"):
     if not (txt and txt.strip()):
         st.warning("텍스트를 입력하세요.")
     else:
@@ -314,13 +314,9 @@ if col_btn.button("분석 (GPT 호출)"):
                 rsp = client.responses.create(
                     model=openai_model,
                     input=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a helpful assistant. If the user's prompt is clearly harmful or illegal, "
-                                "politely refuse and provide safe alternatives."
-                            ),
-                        },
+                        {"role": "system",
+                         "content":
+                         "You are a helpful assistant. If the user's prompt is harmful or illegal, politely refuse and guide them safely."},
                         {"role": "user", "content": txt},
                     ],
                     temperature=0.3,
@@ -329,3 +325,4 @@ if col_btn.button("분석 (GPT 호출)"):
                 st.write(rsp.output_text)
             except Exception as e:
                 st.error(f"GPT 호출 오류: {type(e).__name__}: {e}")
+
