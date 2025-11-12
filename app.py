@@ -235,17 +235,37 @@ def summarize_reason(result: dict) -> str:
     msg = " · ".join(reasons) if reasons else "정상적인 안내 요청"
     return f"{msg} · 확신도: {conf}"
 
+# ===== 6-1) OpenAI 키 해석/검증 + 캐시 클라이언트 =====
+def _resolve_api_key():
+    """
+    우선순위: secrets > env > session
+    - URL 형태 방지
+    - 공백/따옴표 제거
+    - 대략적 유효성( sk-... ) 점검
+    """
+    candidates = [
+        ("secrets", st.secrets.get("OPENAI_API_KEY")),
+        ("env", os.getenv("OPENAI_API_KEY")),
+        ("session", st.session_state.get("OPENAI_API_KEY")),
+    ]
+    for src, val in candidates:
+        if val and str(val).strip():
+            key = str(val).strip().strip('"').strip("'")
+            if key.lower().startswith(("http://", "https://")):
+                st.error(f"OPENAI_API_KEY({src}) 값이 URL입니다. 실제 'sk-…' 키를 넣어주세요.")
+                return src, None
+            # 간단한 패턴 체크(너무 엄격하지 않게)
+            if not re.match(r"^sk-[A-Za-z0-9-_]{10,}", key):
+                st.warning(f"OPENAI_API_KEY({src}) 형태가 의심됩니다(예상: sk-...).")
+            return src, key
+    return None, None
+
 @st.cache_resource(show_spinner=False)
-def get_openai_client():
+def get_openai_client_cached(api_key: str):
     try:
         from openai import OpenAI
     except Exception as e:
         raise RuntimeError(f"openai 라이브러리 불러오기 실패: {e}")
-    api_key = (
-        st.secrets.get("OPENAI_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or st.session_state.OPENAI_API_KEY
-    )
     return OpenAI(api_key=api_key) if api_key else None
 
 # ── 버튼 & 출력 ───────────────────────────────────────────────────────────
@@ -284,20 +304,25 @@ if st.button("분석"):
 
         # ▶ GPT 응답: 전문가 모드와 무관하게 항상 섹션 노출
         st.markdown("### 🤖 GPT 응답")
-        key_from_secrets = bool(st.secrets.get("OPENAI_API_KEY"))
-        key_from_env     = bool(os.getenv("OPENAI_API_KEY"))
-        key_from_session = bool(st.session_state.get("OPENAI_API_KEY"))
-        key_ok = key_from_secrets or key_from_env or key_from_session
 
+        # 키 출처/상태 캡션(디버그 도움)
+        st.caption(
+            f"Key sources → secrets:{bool(st.secrets.get('OPENAI_API_KEY'))} "
+            f"env:{bool(os.getenv('OPENAI_API_KEY'))} "
+            f"session:{bool(st.session_state.get('OPENAI_API_KEY'))}"
+        )
+
+        src, api_key = _resolve_api_key()
+        key_ok = bool(api_key)
         allow_call = key_ok and (verdict == "안전" or (verdict == "악성" and force_call))
 
         if not key_ok:
-            st.info("OPENAI_API_KEY가 설정되어 있지 않아 GPT 호출을 생략합니다.")
+            st.info("OPENAI_API_KEY가 설정되지 않았거나 유효하지 않아 GPT 호출을 생략합니다.")
         elif not allow_call:
             st.warning("악성 판정으로 GPT 호출이 차단되었습니다. (사이드바 '위험해도 GPT 호출 강행'을 켜면 호출됩니다)")
         else:
             try:
-                client = get_openai_client()
+                client = get_openai_client_cached(api_key)
                 if client is None:
                     st.info("API Key가 설정되지 않았습니다.")
                 else:
